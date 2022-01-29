@@ -8,4 +8,6 @@ All scripts in this repo are MIT licensed.
 * `monster_has_hp_bar.lua` - Adds a health bar to the top of your screen for the nearest large monster. [Nexus Mods Link](https://www.nexusmods.com/monsterhunterrise/mods/43)
 
 ## Installation
-Most scripts can be installed by just dropping them into your REFramework `/autorun` directory. `monster_has_hp_bar.lua` also requires my [REFramework-D2D](https://github.com/cursey/reframework-d2d) plugin.
+Most scripts can be installed by just dropping them into your REFramework `/autorun` directory. 
+
+`monster_has_hp_bar.lua` also requires my [REFramework-D2D](https://github.com/cursey/reframework-d2d) plugin.
