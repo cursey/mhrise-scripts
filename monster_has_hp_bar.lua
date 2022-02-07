@@ -19,26 +19,81 @@ re.on_config_save(
 local status = ""
 local hp_table = {}
 
-function record_hp(enemy)
+local physical_param_field = sdk.find_type_definition("snow.enemy.EnemyCharacterBase"):get_field("<PhysicalParam>k__BackingField")
+local get_vital_method = physical_param_field:get_type():get_method("getVital")
+local vital_param_type = get_vital_method:get_return_type()
+local get_current_hp_method = vital_param_type:get_method("get_Current")
+local get_max_hp_method = vital_param_type:get_method("get_Max")
+local enemy_type_field = sdk.find_type_definition("snow.enemy.EnemyCharacterBase"):get_field("<EnemyType>k__BackingField")
+local message_manager_type = sdk.find_type_definition("snow.gui.MessageManager")
+local get_enemy_message_method = message_manager_type:get_method("getEnemyNameMessage")
+local em_boss_character_base_type = sdk.find_type_definition("snow.enemy.EmBossCharacterBase")
+
+
+local msgman = nil
+local tick_count = 0
+local last_update_tick = 0
+local recorded_monsters = {}
+local updated_monsters = {}
+local num_known_monsters = 0
+local num_updated_monsters = 0
+local tick_start = 0
+
+-- run every tick to keep track of monsters
+-- whenever we've updated enough monsters to surpass how many we've seen,
+-- we reset and start over
+-- this allows us to only update one monster per tick to save on performance
+re.on_pre_application_entry("UpdateBehavior", function()
+    tick_count = tick_count + 1
+ 
+    if num_known_monsters ~= 0 and 
+            num_updated_monsters >= num_known_monsters or 
+            tick_count >= num_known_monsters * 2 
+    then
+        recorded_monsters = {}
+        updated_monsters = {}
+        last_update_tick = 0
+        tick_count = 0
+        num_known_monsters = 0
+        num_updated_monsters = 0
+    end
+end)
+
+function record_hp(args)
+    local enemy = sdk.to_managed_object(args[2])
     if not enemy then return end
 
-    local physparam = enemy:get_field("<PhysicalParam>k__BackingField")
+    if not recorded_monsters[enemy] then
+        num_known_monsters = num_known_monsters + 1
+        recorded_monsters[enemy] = true
+    end
+
+    -- only updates one monster per tick to increase performance
+    if updated_monsters[enemy] or tick_count == last_update_tick then
+        return
+    end
+
+    last_update_tick = tick_count
+    num_updated_monsters = num_updated_monsters + 1
+    updated_monsters[enemy] = true
+
+    local physparam = physical_param_field:get_data(enemy)
     if not physparam then 
         status = "No physical param"
         return
     end
 
-    local vitalparam = physparam:call("getVital", 0, 0)
+    local vitalparam = get_vital_method:call(physparam, 0, 0)
     if not vitalparam then
         status = "No vital param"
         return
     end
 
-    local hp = vitalparam:call("get_Current")
-    local max_hp = vitalparam:call("get_Max")
+    local hp = get_current_hp_method:call(vitalparam)
+    local max_hp = get_max_hp_method:call(vitalparam)
     local hp_entry = hp_table[enemy]
 
-    local vitals = physparam:get_field("_VitalList")
+    --[[local vitals = physparam:get_field("_VitalList")
     if not vitals then
         status = "No vital list"
         return
@@ -50,26 +105,25 @@ function record_hp(enemy)
         return
     end
 
-    local num_vitals = #vital_items:get_elements()
+    local num_vitals = #vital_items:get_elements()]]
 
     if not hp_entry then 
-        hp_entry = {} 
-        hp_table[enemy] = hp_entry
-
         -- Grab enemy name.
-        local msgman = sdk.get_managed_singleton("snow.gui.MessageManager")
         if not msgman then
             status = "No message manager"
             return
         end
 
-        local enemy_type = enemy:get_field("<EnemyType>k__BackingField")
+        local enemy_type = enemy_type_field:get_data(enemy)
         if not enemy_type then
             status = "No enemy type"
             return
         end
 
-        local name = msgman:call("getEnemyNameMessage", enemy_type)
+        hp_entry = {} 
+        hp_table[enemy] = hp_entry
+
+        local name = get_enemy_message_method:call(msgman, enemy_type)
         hp_entry.name = name
         hp_entry.parts = {}
     end
@@ -82,9 +136,7 @@ local typedef = sdk.find_type_definition("snow.enemy.EnemyCharacterBase")
 local update_method = typedef:get_method("update")
 
 sdk.hook(update_method, 
-    function(args) 
-        record_hp(sdk.to_managed_object(args[2]))
-    end, 
+    record_hp,
     function(retval) end
 )
 
@@ -118,6 +170,13 @@ d2d.register(
         font = d2d.create_font(cfg.font_name, cfg.font_size, true)
     end, 
     function()
+        msgman = sdk.get_managed_singleton("snow.gui.MessageManager")
+
+        if not msgman then
+            status = "No message manager"
+            return
+        end
+
         local playman = sdk.get_managed_singleton("snow.player.PlayerManager")
         if not playman then 
             status = "No player manager"
